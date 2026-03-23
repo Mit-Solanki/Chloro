@@ -1,4 +1,4 @@
-# chloro
+# Chloro
 
 A new Flutter project.
 
