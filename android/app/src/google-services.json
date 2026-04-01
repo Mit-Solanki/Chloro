@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "347936820144",
+    "project_id": "chrolo-1fec8",
+    "storage_bucket": "chrolo-1fec8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:347936820144:android:ba70bbce8ab45e4013e475",
+        "android_client_info": {
+          "package_name": "com.example.chloro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDOPQ-yQ13j3XrayxpJyDeWkxgYrHS6fUo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
