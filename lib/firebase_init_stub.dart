@@ -1,5 +1,6 @@
-// Stub file for non-web platforms
+// Stub file for unsupported platforms
 Future<void> initializeFirebase() async {
-  // This will be replaced by the actual implementation
-  throw UnsupportedError('initializeFirebase not implemented');
+  throw UnsupportedError(
+    'Firebase is only supported on Android and Web platforms',
+  );
 }

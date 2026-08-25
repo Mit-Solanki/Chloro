@@ -6,6 +6,8 @@ class SettingsTab extends StatefulWidget {
   final Function(String) onDeviceNameChange;
   final Function(double) onMoistureThresholdChange;
   final Function(double) onLightThresholdChange;
+  final Function(bool)?  onAlertsEnabledChange;
+  final Function(bool)?  onPushNotificationsChange;
 
   const SettingsTab({
     super.key,
@@ -13,6 +15,8 @@ class SettingsTab extends StatefulWidget {
     required this.onDeviceNameChange,
     required this.onMoistureThresholdChange,
     required this.onLightThresholdChange,
+    this.onAlertsEnabledChange,
+    this.onPushNotificationsChange,
   });
 
   @override
@@ -142,9 +146,8 @@ class _SettingsTabState extends State<SettingsTab> {
             title: const Text('Enable Alerts'),
             value: widget.appSettings.alertsEnabled,
             onChanged: (value) {
-              setState(() {
-                widget.appSettings.alertsEnabled = value;
-              });
+              setState(() => widget.appSettings.alertsEnabled = value);
+              widget.onAlertsEnabledChange?.call(value);
             },
             activeColor: Colors.green,
           ),
@@ -152,9 +155,8 @@ class _SettingsTabState extends State<SettingsTab> {
             title: const Text('Push Notifications'),
             value: widget.appSettings.pushNotificationsEnabled,
             onChanged: (value) {
-              setState(() {
-                widget.appSettings.pushNotificationsEnabled = value;
-              });
+              setState(() => widget.appSettings.pushNotificationsEnabled = value);
+              widget.onPushNotificationsChange?.call(value);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(

@@ -1,11 +1,23 @@
+// lib/screens/home.dart
+//
+// Main home screen.
+// Changes vs original:
+//  • Cloud icon in top-left pings ESP32 every 10s — real connected/disconnected
+//  • isConnected is no longer a manual toggle — it reflects actual ESP32 state
+
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models.dart';
-import 'dashboard.dart';
+import '../services/firebase_service.dart';
+import '../services/esp32_music_service.dart';
+import 'dashboard_with_history.dart';
 import 'led_control.dart';
 import 'speaker_control.dart';
 import 'settings.dart';
 import 'notification_history.dart';
 import 'alarm.dart';
+import 'music_player.dart'; // for esp32Ip
+import 'ai_assistant.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -14,109 +26,138 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-  
-
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  bool isConnected = true;
+
+  // ESP32 connection state — updated by periodic ping
+  bool _esp32Connected = false;
+  Timer? _pingTimer;
+  Timer? _notifTimer;
+
   bool showAlert = true;
 
   // Data models
   final SensorData sensorData = SensorData();
   final LEDSettings ledSettings = LEDSettings();
   final SpeakerSettings speakerSettings = SpeakerSettings();
-  final AppSettings appSettings = AppSettings();
+  AppSettings appSettings = AppSettings(); // loaded from storage
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
+    _loadSettings();
+    _setupRealtimeListeners();
+    _startEsp32Ping();
+  }
+
+  // ── Load persisted settings ───────────────────────────────────────────────
+  Future<void> _loadSettings() async {
+    final saved = await SettingsStorage.load();
+    if (mounted) setState(() => appSettings = saved);
+  }
+
+  // ── Save settings whenever they change ───────────────────────────────────
+  Future<void> _saveSettings() => SettingsStorage.save(appSettings);
+
+  // ── Ping ESP32 every 10 seconds to update the cloud icon ─────────────────
+  void _startEsp32Ping() {
+    _pingEsp32(); // immediate first check
+    _pingTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _pingEsp32(),
+    );
+  }
+
+  Future<void> _pingEsp32() async {
+    final svc = Esp32MusicService(ip: esp32Ip);
+    final reachable = await svc.isReachable();
+    if (mounted) {
+      setState(() => _esp32Connected = reachable);
+    }
+  }
+
+  void _setupRealtimeListeners() {
+    FirebaseService.instance.getSensorReadings().listen((data) {
+      if (mounted && data != null) {
+        setState(() {
+          if (data.containsKey('temperature'))
+            sensorData.temperature = (data['temperature'] as num).toDouble();
+          if (data.containsKey('humidity'))
+            sensorData.humidity = (data['humidity'] as num).toDouble();
+          // Firestore field is 'soil_percent' (not 'soil_moisture')
+          if (data.containsKey('soil_percent'))
+            sensorData.soilMoisture = (data['soil_percent'] as num).toDouble();
+          // Firestore field is 'ldr' (not 'light_intensity')
+          if (data.containsKey('ldr'))
+            sensorData.lightIntensity = (data['ldr'] as num).toDouble();
+        });
+        // Check thresholds and log a notification if needed
+        if (appSettings.alertsEnabled) {
+          NotificationService.checkAndLog(
+            sensorData: sensorData,
+            settings: appSettings,
+          );
+        }
+      }
+    }, onError: (e) => print('❌ Sensor stream error: $e'));
   }
 
   @override
   void dispose() {
+    _pingTimer?.cancel();
+    _notifTimer?.cancel();
     _tabController.dispose();
     super.dispose();
   }
 
   String getPlantStatus() {
-    if (sensorData.soilMoisture < appSettings.moistureThreshold) {
+    if (sensorData.soilMoisture < appSettings.moistureThreshold)
       return 'Needs Water';
-    } else if (sensorData.lightIntensity < appSettings.lightThreshold) {
+    if (sensorData.lightIntensity < appSettings.lightThreshold)
       return 'Low Light';
-    }
     return 'Healthy';
   }
 
   Color getStatusColor() {
-    String status = getPlantStatus();
-    if (status == 'Healthy') return Colors.green;
-    if (status == 'Needs Water') return Colors.blue;
+    final s = getPlantStatus();
+    if (s == 'Healthy') return Colors.green;
+    if (s == 'Needs Water') return Colors.blue;
     return Colors.orange;
   }
 
   Color getBackgroundColor() {
-    if (!showAlert || getPlantStatus() == 'Healthy') {
-      return Colors.white;
-    }
+    if (!showAlert || getPlantStatus() == 'Healthy') return Colors.white;
     return getStatusColor().withOpacity(0.08);
   }
 
   void _updateDeviceName(String name) {
-    setState(() {
-      appSettings.deviceName = name;
-    });
+    setState(() => appSettings.deviceName = name);
+    _saveSettings();
   }
 
   void _updateMoistureThreshold(double value) {
-    setState(() {
-      appSettings.moistureThreshold = value;
-    });
+    setState(() => appSettings.moistureThreshold = value);
+    _saveSettings();
   }
 
   void _updateLightThreshold(double value) {
-    setState(() {
-      appSettings.lightThreshold = value;
-    });
+    setState(() => appSettings.lightThreshold = value);
+    _saveSettings();
   }
 
-  void _toggleLED(bool state) {
-    setState(() {
-      ledSettings.isOn = state;
-    });
-  }
+  void _toggleLED(bool state) => setState(() => ledSettings.isOn = state);
+  void _updateBrightness(double value) =>
+      setState(() => ledSettings.brightness = value);
+  void _updateColor(Color color) => setState(() => ledSettings.color = color);
+  void _togglePlayPause(bool state) =>
+      setState(() => speakerSettings.isPlaying = state);
+  void _updateTrack(String track) =>
+      setState(() => speakerSettings.selectedTrack = track);
+  void _updateVolume(double value) =>
+      setState(() => speakerSettings.volume = value);
 
-  void _updateBrightness(double value) {
-    setState(() {
-      ledSettings.brightness = value;
-    });
-  }
-
-  void _updateColor(Color color) {
-    setState(() {
-      ledSettings.color = color;
-    });
-  }
-
-  void _togglePlayPause(bool state) {
-    setState(() {
-      speakerSettings.isPlaying = state;
-    });
-  }
-
-  void _updateTrack(String track) {
-    setState(() {
-      speakerSettings.selectedTrack = track;
-    });
-  }
-
-  void _updateVolume(double value) {
-    setState(() {
-      speakerSettings.volume = value;
-    });
-  }
-  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -127,28 +168,30 @@ class _HomePageState extends State<HomePage>
         ),
         backgroundColor: Colors.green,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            isConnected ? Icons.cloud_done : Icons.cloud_off,
-            color: isConnected ? Colors.white : Colors.red,
+        // ── Cloud icon: real ESP32 connection status ───────────────────────
+        leading: Tooltip(
+          message: _esp32Connected ? 'ESP32 Connected' : 'ESP32 Offline',
+          child: IconButton(
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: Icon(
+                _esp32Connected ? Icons.cloud_done : Icons.cloud_off,
+                key: ValueKey(_esp32Connected),
+                color: _esp32Connected ? Colors.white : Colors.red[300],
+              ),
+            ),
+            onPressed: _pingEsp32, // tap to manually recheck
           ),
-          onPressed: () {
-            setState(() {
-              isConnected = !isConnected;
-            });
-          },
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const NotificationHistoryScreen(),
-                ),
-              );
-            },
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const NotificationHistoryScreen(),
+              ),
+            ),
           ),
         ],
       ),
@@ -156,7 +199,7 @@ class _HomePageState extends State<HomePage>
         color: getBackgroundColor(),
         child: Column(
           children: [
-            // Alert Banner
+            // Alert banner
             if (showAlert && getPlantStatus() != 'Healthy')
               Container(
                 width: double.infinity,
@@ -177,16 +220,12 @@ class _HomePageState extends State<HomePage>
                     ),
                     IconButton(
                       icon: const Icon(Icons.close, size: 18),
-                      onPressed: () {
-                        setState(() {
-                          showAlert = false;
-                        });
-                      },
+                      onPressed: () => setState(() => showAlert = false),
                     ),
                   ],
                 ),
               ),
-            // Tab Bar
+            // Tab bar
             Container(
               color: Colors.green,
               child: TabBar(
@@ -199,15 +238,16 @@ class _HomePageState extends State<HomePage>
                   Tab(text: 'LED Control', icon: Icon(Icons.lightbulb)),
                   Tab(text: 'Speaker', icon: Icon(Icons.speaker)),
                   Tab(text: 'Settings', icon: Icon(Icons.settings)),
+                  Tab(text: 'AI Assistant', icon: Icon(Icons.auto_awesome)),
                 ],
               ),
             ),
-            // Tab Views
+            // Tab views
             Expanded(
               child: TabBarView(
                 controller: _tabController,
                 children: [
-                  DashboardTab(
+                  DashboardTabWithHistory(
                     sensorData: sensorData,
                     plantStatus: getPlantStatus(),
                     statusColor: getStatusColor(),
@@ -229,6 +269,18 @@ class _HomePageState extends State<HomePage>
                     onDeviceNameChange: _updateDeviceName,
                     onMoistureThresholdChange: _updateMoistureThreshold,
                     onLightThresholdChange: _updateLightThreshold,
+                    onAlertsEnabledChange: (v) {
+                      setState(() => appSettings.alertsEnabled = v);
+                      _saveSettings();
+                    },
+                    onPushNotificationsChange: (v) {
+                      setState(() => appSettings.pushNotificationsEnabled = v);
+                      _saveSettings();
+                    },
+                  ),
+                  AiAssistantTab(
+                    sensorData: sensorData,
+                    appSettings: appSettings,
                   ),
                 ],
               ),
@@ -239,23 +291,19 @@ class _HomePageState extends State<HomePage>
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           if (_tabController.index == 0) {
-            // Dashboard: Open Alarm Screen
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const AlarmScreen()),
+              MaterialPageRoute(builder: (_) => const AlarmScreen()),
             );
           } else if (_tabController.index == 1) {
-            // LED Control: Add new LED
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Add new LED controller')),
             );
           } else if (_tabController.index == 2) {
-            // Speaker: Show device music
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Loading music from device...')),
             );
           } else {
-            // Settings: Default action
             ScaffoldMessenger.of(
               context,
             ).showSnackBar(const SnackBar(content: Text('Settings option')));
@@ -267,5 +315,3 @@ class _HomePageState extends State<HomePage>
     );
   }
 }
-
-// error below comment

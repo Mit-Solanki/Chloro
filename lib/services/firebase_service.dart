@@ -1,187 +1,163 @@
-import 'dart:typed_data';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-/// Firebase Service - Works on both Android and Web
-/// For Web: Uses JavaScript Firebase SDK (initialized in web/index.html)
-/// For Android: Uses Dart Firebase SDK
+/// Firebase Service - Matches actual Firestore structure:
+/// - sensors_current/current  → live sensor data
+/// - sensors_history/{autoId} → flat collection of historical readings
 class FirebaseService {
   static final instance = FirebaseService._();
+  late FirebaseFirestore _firestore;
+  bool _initialized = false;
 
-  FirebaseService._() {
-    if (kIsWeb) {
-      print('Firebase initialized via JavaScript SDK on web');
-    } else {
-      print('Firebase initialized via Dart SDK on Android');
-    }
-  }
+  FirebaseService._();
 
-  // ============== Database Operations ==============
+  Future<void> initializeFirestore() async {
+    if (_initialized) return;
 
-  /// Write data to Realtime Database
-  Future<void> writeData(String path, Map<String, dynamic> data) async {
     try {
-      if (kIsWeb) {
-        print('Web: Writing data to $path via JavaScript SDK');
-        // Firebase JS SDK: firebase.database().ref(path).set(data);
-      } else {
-        final db = _getDatabase();
-        await db.child(path).set(data);
-      }
-      print('Data written successfully to $path');
-    } catch (e) {
-      print('Error writing data: $e');
-      rethrow;
-    }
-  }
+      _firestore = FirebaseFirestore.instance;
 
-  /// Read data from Realtime Database
-  Future<Map<String, dynamic>?> readData(String path) async {
-    try {
-      if (kIsWeb) {
-        print('Web: Reading data from $path via JavaScript SDK');
-        return null;
-        // Firebase JS SDK: return firebase.database().ref(path).once('value');
-      } else {
-        final db = _getDatabase();
-        final snapshot = await db.child(path).get();
-        if (snapshot.exists) {
-          return Map<String, dynamic>.from(snapshot.value as Map);
+      if (!kIsWeb) {
+        try {
+          _firestore.settings = const Settings(
+            persistenceEnabled: true,
+            cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+          );
+          print('✅ Firestore offline persistence enabled');
+        } catch (e) {
+          print('⚠️ Could not enable offline persistence: $e');
         }
       }
+
+      _initialized = true;
+      print('✅ Firestore initialized successfully');
+    } catch (e) {
+      print('❌ Error initializing Firestore: $e');
+      rethrow;
+    }
+  }
+
+  void _ensureInitialized() {
+    if (!_initialized) {
+      throw StateError(
+        'FirebaseService not initialized. Call initializeFirestore() first.',
+      );
+    }
+  }
+
+  // ============================================================
+  // CURRENT SENSOR READINGS
+  // Collection: sensors_current, Document: current
+  // Fields: humidity, ldr, soil_percent, soil_raw, temperature, time, timestamp
+  // ============================================================
+
+  /// Stream real-time current sensor data from sensors_current/current
+  Stream<Map<String, dynamic>?> getSensorReadings() {
+    try {
+      _ensureInitialized();
+      print('📡 Getting current sensor readings from sensors_current/current');
+      return _firestore
+          .collection('sensors_current')
+          .doc('current')
+          .snapshots()
+          .map((snapshot) => snapshot.data());
+    } catch (e) {
+      print('❌ Error getting sensor readings: $e');
+      return Stream.error(e);
+    }
+  }
+
+  // ============================================================
+  // HISTORY READINGS
+  // Collection: sensors_history (flat — each doc has all sensor fields)
+  // Fields per doc: humidity, ldr, soil_percent, soil_raw, temperature, time, timestamp (number)
+  // ============================================================
+
+  /// Get history readings for a specific sensor field from sensors_history
+  /// [sensorField] should be one of: 'temperature', 'humidity', 'soil_percent', 'ldr'
+  Future<List<Map<String, dynamic>>> getHistoryReadings(String sensorField) async {
+    try {
+      _ensureInitialized();
+      print('📖 Getting history from sensors_history for field: $sensorField');
+      final snapshot = await _firestore
+          .collection('sensors_history')
+          .orderBy('timestamp', descending: true)
+          .limit(1440)
+          .get();
+
+      final readings = snapshot.docs.map((doc) => doc.data()).toList();
+      print('✅ Retrieved ${readings.length} history records');
+      return readings;
+    } catch (e) {
+      print('❌ Error getting history readings: $e');
+      return [];
+    }
+  }
+
+  /// Stream history readings from sensors_history (real-time)
+  Stream<List<Map<String, dynamic>>> streamReadings(String sensorField) {
+    try {
+      _ensureInitialized();
+      print('📡 Streaming sensors_history for field: $sensorField');
+      return _firestore
+          .collection('sensors_history')
+          .orderBy('timestamp', descending: true)
+          .limit(1440)
+          .snapshots()
+          .map((snapshot) => snapshot.docs.map((doc) => doc.data()).toList());
+    } catch (e) {
+      print('❌ Error streaming readings: $e');
+      return Stream.error(e);
+    }
+  }
+
+  // ============================================================
+  // GENERIC OPERATIONS (kept for flexibility)
+  // ============================================================
+
+  Future<Map<String, dynamic>?> readData(String collection, String document) async {
+    try {
+      _ensureInitialized();
+      print('📖 Reading from $collection/$document');
+      final snapshot = await _firestore.collection(collection).doc(document).get();
+      if (snapshot.exists) {
+        print('✅ Data found: ${snapshot.data()}');
+        return snapshot.data();
+      }
+      print('⚠️ No data found at $collection/$document');
       return null;
     } catch (e) {
-      print('Error reading data: $e');
-      rethrow;
-    }
-  }
-
-  /// Update data in Realtime Database
-  Future<void> updateData(String path, Map<String, dynamic> data) async {
-    try {
-      if (kIsWeb) {
-        print('Web: Updating data at $path via JavaScript SDK');
-        // Firebase JS SDK: firebase.database().ref(path).update(data);
-      } else {
-        final db = _getDatabase();
-        await db.child(path).update(data);
-      }
-      print('Data updated successfully at $path');
-    } catch (e) {
-      print('Error updating data: $e');
-      rethrow;
-    }
-  }
-
-  /// Delete data from Realtime Database
-  Future<void> deleteData(String path) async {
-    try {
-      if (kIsWeb) {
-        print('Web: Deleting data at $path via JavaScript SDK');
-        // Firebase JS SDK: firebase.database().ref(path).remove();
-      } else {
-        final db = _getDatabase();
-        await db.child(path).remove();
-      }
-      print('Data deleted successfully from $path');
-    } catch (e) {
-      print('Error deleting data: $e');
-      rethrow;
-    }
-  }
-
-  // ============== Authentication Operations ==============
-
-  /// Sign up with email and password
-  Future<void> signUpWithEmail(String email, String password) async {
-    try {
-      if (kIsWeb) {
-        print('Web: Signing up with $email via JavaScript SDK');
-        // Firebase JS SDK: firebase.auth().createUserWithEmailAndPassword(email, password);
-      } else {
-        final auth = _getAuth();
-        await auth.createUserWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
-      }
-      print('User signed up: $email');
-    } catch (e) {
-      print('Error signing up: $e');
-      rethrow;
-    }
-  }
-
-  /// Sign in with email and password
-  Future<void> signInWithEmail(String email, String password) async {
-    try {
-      if (kIsWeb) {
-        print('Web: Signing in with $email via JavaScript SDK');
-        // Firebase JS SDK: firebase.auth().signInWithEmailAndPassword(email, password);
-      } else {
-        final auth = _getAuth();
-        await auth.signInWithEmailAndPassword(email: email, password: password);
-      }
-      print('User signed in: $email');
-    } catch (e) {
-      print('Error signing in: $e');
-      rethrow;
-    }
-  }
-
-  /// Sign out
-  Future<void> signOut() async {
-    try {
-      if (kIsWeb) {
-        print('Web: Signing out via JavaScript SDK');
-        // Firebase JS SDK: firebase.auth().signOut();
-      } else {
-        final auth = _getAuth();
-        await auth.signOut();
-      }
-    } catch (e) {
-      print('Error signing out: $e');
-      rethrow;
-    }
-  }
-
-  // ============== Helper Methods ==============
-
-  /// Get database reference (Android only)
-  dynamic _getDatabase() {
-    // Import and return Firebase Database instance
-    // This is only called on Android
-    try {
-      // Import Firebase Database dynamically for Android
-      // ignore: avoid_returning_null_from_future
+      print('❌ Error reading data: $e');
       return null;
-    } catch (e) {
-      throw Exception('Firebase Database not available: $e');
     }
   }
 
-  /// Get auth instance (Android only)
-  dynamic _getAuth() {
-    // Import and return Firebase Auth instance
-    // This is only called on Android
+  Future<void> writeData(String collection, String document, Map<String, dynamic> data) async {
     try {
-      // Import Firebase Auth dynamically for Android
-      // ignore: avoid_returning_null_from_future
-      return null;
+      _ensureInitialized();
+      print('✍️ Writing to $collection/$document');
+      await _firestore.collection(collection).doc(document).set(data, SetOptions(merge: true));
+      print('✅ Data written successfully');
     } catch (e) {
-      throw Exception('Firebase Auth not available: $e');
+      print('❌ Error writing data: $e');
+      rethrow;
     }
+  }
+
+  Future<void> updateData(String collection, String document, Map<String, dynamic> data) async {
+    try {
+      _ensureInitialized();
+      print('🔄 Updating $collection/$document');
+      await _firestore.collection(collection).doc(document).update(data);
+      print('✅ Data updated successfully');
+    } catch (e) {
+      print('❌ Error updating data: $e');
+      rethrow;
+    }
+  }
+
+  FirebaseFirestore get firestore {
+    _ensureInitialized();
+    return _firestore;
   }
 }
-
-  /// Get auth instance (Android only)
-  dynamic _getAuth() {
-    // Import and return Firebase Auth instance
-    // This is only called on Android
-    try {
-      // ignore: avoid_returning_null_from_future
-      return null;
-    } catch (e) {
-      throw Exception('Firebase Auth not available: $e');
-    }
-  }
-

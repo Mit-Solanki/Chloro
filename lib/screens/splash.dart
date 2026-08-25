@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'home.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -91,9 +92,9 @@ class _SplashScreenState extends State<SplashScreen>
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ).createShader(bounds),
-                  child: const Text(
-                    'CHLORO',
-                    style: TextStyle(
+                  child: Text(
+                    '🌿 CHLORO',
+                    style: GoogleFonts.urbanist(
                       fontSize: 56,
                       fontWeight: FontWeight.w900,
                       color: Colors.white,
