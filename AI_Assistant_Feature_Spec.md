@@ -27,7 +27,7 @@ Add `GEMINI_API_KEY` usage instructions to a new `AI_ASSISTANT_SETUP.md` and mak
 ## 2. New service: `lib/services/ai_advisor_service.dart`
 Responsibilities:
 - Build the prompt (see Section 3) from a `SensorData` object, an `AppSettings` object, and an optional trend summary string.
-- POST to `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey` with a JSON body:
+- POST to `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=$apiKey` with a JSON body:
 ```json
 {
   "systemInstruction": { "parts": [ { "text": "<system prompt>" } ] },

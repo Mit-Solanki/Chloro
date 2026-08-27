@@ -17,7 +17,7 @@ class AiAdvisorException implements Exception {
 class AiAdvisorService {
   static const apiKey = String.fromEnvironment('GEMINI_API_KEY');
   static const _endpoint =
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
   static const _fullSystemPrompt =
       '''You are Chloro's plant care advisor. You receive live sensor readings from a smart plant pot (soil moisture %, temperature °C, humidity %, light level) and must give short, practical care advice.
 
@@ -144,7 +144,8 @@ Explain what this means for the plant.''';
       ],
       'generationConfig': {
         'responseMimeType': 'application/json',
-        'maxOutputTokens': 300,
+        'maxOutputTokens': 1024,
+        'thinkingConfig': {'thinkingLevel': 'minimal'},
       },
     };
 
@@ -177,7 +178,8 @@ Explain what this means for the plant.''';
       ],
       'generationConfig': {
         'responseMimeType': 'application/json',
-        'maxOutputTokens': 180,
+        'maxOutputTokens': 512,
+        'thinkingConfig': {'thinkingLevel': 'minimal'},
       },
     };
 
@@ -194,11 +196,15 @@ Explain what this means for the plant.''';
   Future<T> _withJsonRetry<T>(Future<T> Function() request) async {
     try {
       return await request();
-    } on FormatException {
+    } on FormatException catch (error) {
+      // ignore: avoid_print
+      print('AI Assistant: JSON parse failed, retrying once. $error');
       try {
         return await request();
       } catch (error) {
         if (error is FormatException && T == AiAdvice) {
+          // ignore: avoid_print
+          print('AI Assistant: JSON parse failed again, using fallback. $error');
           return AiAdvice(
                 status: 'Unknown',
                 headline: 'Advice unavailable',
