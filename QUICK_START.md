@@ -1,5 +1,5 @@
 # Quick Start Guide - Get Data Showing in 5 Minutes
-
+# flutter run -d windows --dart-define=GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
 ## Step 1: Add Test Data Helper Import to main.dart
 
 ```dart
